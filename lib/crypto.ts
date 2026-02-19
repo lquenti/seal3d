@@ -1,3 +1,17 @@
+// How the crypto works: Inspired by the [gocryptfs crypto](https://nuetzlich.net/gocryptfs/forward_mode_crypto/)
+// Also see [its crypto audit](https://defuse.ca/audits/gocryptfs.htm)
+//
+// Effectively, we chunk every 5MiB and use AES256-GCM (GCM to find out if the crypto worked through auth tag).
+// Now we furhtermore ensure against 2 attack vectors:
+//
+// 1. **Changing chunks between files:** The chunk size is known to the attacker. So if the attacker knows (or assumes)
+//    that the lazy user always uses the same password, it could take two files and write chunks from file 1 to file 2,
+//    as long as it keeps chunk boundaries. To prevent this, each file has a fileid (a header) that gets put into
+//    each AES chunk as AAD, thus if chunks are transfered to a different file the file id doesnt match, thus wrong aad
+//    breaks, thus it fails.
+// 2. **Changing chunks within files:** This obviously doesn't secure against tampering within a single file. For this,
+//    we also give each chunk a number (if we just increase by 1, we dont even have to store it) and add it to the aad.
+
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MiB
 const FILE_ID_SIZE = 16; // 128-bit file ID
 const IV_SIZE = 12;      // 96-bit IV for AES-GCM
