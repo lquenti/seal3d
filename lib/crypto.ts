@@ -12,6 +12,8 @@
 // 2. **Changing chunks within files:** This obviously doesn't secure against tampering within a single file. For this,
 //    we also give each chunk a number (if we just increase by 1, we dont even have to store it) and add it to the aad.
 
+const VERSION = 1;       // File format version
+const VERSION_SIZE = 1;  // 8-bit version
 const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MiB
 const FILE_ID_SIZE = 16; // 128-bit file ID
 const IV_SIZE = 12;      // 96-bit IV for AES-GCM
@@ -48,10 +50,10 @@ const buildAAD = (fileId: Uint8Array, blockIndex: number): Uint8Array => {
 
 /**
  * Encrypted file layout:
- *   [16-byte salt][16-byte fileId][N blocks...]
+ * [1-byte version][16-byte salt][16-byte fileId][N blocks...]
  *
  * Each block:
- *   [12-byte IV][ciphertext + 16-byte GCM auth tag]
+ * [12-byte IV][ciphertext + 16-byte GCM auth tag]
  */
 export const encryptFile = async (data: Uint8Array, password: string): Promise<Uint8Array> => {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE));
@@ -80,12 +82,13 @@ export const encryptFile = async (data: Uint8Array, password: string): Promise<U
   }
 
   // Compute total size and assemble output
-  const totalSize = SALT_SIZE + FILE_ID_SIZE + chunks.reduce((acc, c) => acc + c.length, 0);
+  const totalSize = VERSION_SIZE + SALT_SIZE + FILE_ID_SIZE + chunks.reduce((acc, c) => acc + c.length, 0);
   const result = new Uint8Array(totalSize);
   let offset = 0;
 
-  result.set(salt, offset);   offset += SALT_SIZE;
-  result.set(fileId, offset); offset += FILE_ID_SIZE;
+  result.set([VERSION], offset); offset += VERSION_SIZE;
+  result.set(salt, offset);      offset += SALT_SIZE;
+  result.set(fileId, offset);    offset += FILE_ID_SIZE;
   for (const chunk of chunks) {
     result.set(chunk, offset);
     offset += chunk.length;
@@ -96,6 +99,11 @@ export const encryptFile = async (data: Uint8Array, password: string): Promise<U
 
 export const decryptFile = async (data: Uint8Array, password: string): Promise<Uint8Array> => {
   let offset = 0;
+
+  const version = data[offset]; offset += VERSION_SIZE;
+  if (version !== VERSION) {
+    throw new Error(`Unsupported file version: ${version}`);
+  }
 
   const salt   = data.slice(offset, offset + SALT_SIZE);   offset += SALT_SIZE;
   const fileId = data.slice(offset, offset + FILE_ID_SIZE); offset += FILE_ID_SIZE;
